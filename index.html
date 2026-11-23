@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diganta</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root { --bg:#0b0f14; --panel:rgba(12,16,22,.9); --fg:#eef2f6; --accent:#ffb020; --muted:#9aa6b2; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:15px/1.4 system-ui,sans-serif; }
+  #sat { position:fixed; inset:0; }
+  .hud { position:fixed; top:12px; left:12px; z-index:1000; background:var(--panel); padding:8px 14px; border-radius:10px; max-width:calc(100vw - 80px); }
+  .hud b { color:var(--accent); }
+  .hud a { color:var(--muted); margin-left:10px; cursor:pointer; text-decoration:underline; }
+  #jhud .look { color:var(--muted); font-size:13px; margin-top:2px; }
+  #jhud .row { display:flex; gap:8px; margin-top:8px; }
+  #jhud button { width:auto; padding:6px 12px; border-radius:8px; font-size:13px; }
+  #jhud .ghost { background:transparent; color:var(--fg); border:1px solid #445; }
+  #hint { color:var(--accent); font-weight:600; margin-top:6px; }
+  #guessBox { position:fixed; right:16px; bottom:16px; z-index:1000; width:min(320px,calc(100vw - 32px)); transition:width .25s; }
+  #guessBox:hover { width:min(620px,calc(100vw - 32px)); }
+  #guessMap { height:220px; border-radius:10px 10px 0 0; transition:height .25s; }
+  #guessBox:hover #guessMap { height:min(420px,55vh); }
+  button { width:100%; border:0; padding:12px; font:600 15px system-ui; background:var(--accent); color:#111; border-radius:0 0 10px 10px; cursor:pointer; }
+  button:disabled { background:#555; color:#999; cursor:not-allowed; }
+  #result { position:fixed; inset:auto 0 0 0; z-index:1100; background:var(--panel); padding:16px; display:none; text-align:center; }
+  #result h2 { margin:0 0 4px; }
+  #result p { margin:0 0 12px; color:var(--muted); }
+  #result button, #menu button { max-width:260px; border-radius:10px; }
+  #resultMap { height:45vh; border-radius:10px; margin-bottom:12px; }
+  #menu { position:fixed; inset:0; z-index:1200; background:rgba(5,8,12,.72); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:16px; text-align:center; }
+  #menu h1 { margin:0; font-size:40px; letter-spacing:.5px; }
+  #menu p { margin:0 0 6px; color:var(--muted); max-width:420px; }
+  #menu small { display:block; font-weight:400; font-size:12px; opacity:.75; }
+  #compass { position:fixed; left:16px; bottom:30px; z-index:1000; pointer-events:none; filter:drop-shadow(0 2px 6px rgba(0,0,0,.5)); }
+  #fhud label { display:inline-flex; gap:6px; align-items:center; margin-top:8px; cursor:pointer; }
+  #fhud .row { display:flex; gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+  #fhud button { width:auto; padding:6px 12px; border-radius:8px; font-size:13px; }
+  #fPlace { color:var(--muted); font-size:13px; margin-top:4px; }
+  #searchForm { display:flex; gap:6px; margin-top:8px; }
+  #searchForm input { flex:1; min-width:0; padding:7px 10px; border-radius:8px; border:1px solid #445; background:#0b0f14; color:var(--fg); font:14px system-ui; }
+  #gHints { margin:6px 0 0; padding-left:18px; font-size:13px; color:var(--accent); }
+  #gHints:empty { display:none; }
+  button.small { width:auto; padding:6px 12px; border-radius:8px; font-size:13px; margin-top:8px; }
+  #factCard { max-width:640px; margin:0 auto 14px; text-align:left; background:rgba(255,255,255,.05); border-left:3px solid var(--accent); border-radius:8px; padding:10px 14px; }
+  #factCard p { margin:0; color:var(--fg); }
+  #factCard #clueText { margin-top:8px; color:var(--muted); font-size:14px; }
+  #clueText b { color:var(--accent); }
+  #result #resultMap { height:34vh; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="sat"></div>
+
+<div id="menu">
+  <h1>Diganta</h1>
+  <p>দিগন্ত · <i>horizon</i><br>Learn the planet from above.</p>
+  <button id="playGuess">Guess the place<small>5 mystery spots, click where they are</small></button>
+  <button id="playJourney">Journey<small>Travel from A to B without zooming out</small></button>
+  <button id="playFree">Free ride<small>Explore anywhere, zoom as far as you like</small></button>
+</div>
+
+<div id="fhud" class="hud hidden">
+  <div><b>Free ride</b><a class="toMenu">Menu</a></div>
+  <form id="searchForm">
+    <input type="search" id="searchInput" placeholder="Search a place: Nile Delta, Eiffel Tower…" aria-label="Search a place">
+    <button id="searchBtn">Go</button>
+  </form>
+  <div class="row">
+    <label><input type="checkbox" id="labelsBox"> Show place names</label>
+    <button id="surpriseBtn">Surprise me</button>
+  </div>
+  <div id="fPlace"></div>
+</div>
+
+<svg id="compass" class="hidden" viewBox="-50 -50 100 100" width="84" height="84" aria-label="Compass, north is up">
+  <circle r="47" fill="rgba(12,16,22,.85)" stroke="#445" stroke-width="2"/>
+  <polygon points="0,-27 7,0 -7,0" fill="#e5484d"/>
+  <polygon points="0,27 7,0 -7,0" fill="#9aa6b2"/>
+  <g font-size="12" font-weight="700" fill="#eef2f6" text-anchor="middle" dominant-baseline="central" font-family="system-ui,sans-serif">
+    <text y="-38" fill="#e5484d">N</text><text x="38">E</text><text y="38">S</text><text x="-38">W</text>
+  </g>
+  <g id="needle" class="hidden"><line y2="-32" stroke="#ffb020" stroke-width="4" stroke-linecap="round"/><circle r="4" fill="#ffb020"/></g>
+</svg>
+
+<div id="ghud" class="hud hidden">
+  <div>Round <b id="round">1</b>/5 · Score <b id="score">0</b><a class="toMenu">Menu</a></div>
+  <ul id="gHints"></ul>
+  <button id="gHintBtn" class="small">Hint (−500)</button>
+</div>
+
+<div id="jhud" class="hud hidden">
+  <div><b id="jFrom"></b> → <b id="jTo"></b><a class="toMenu">Menu</a></div>
+  <div class="look" id="jLook"></div>
+  <div class="look"><span id="jTime">0:00</span> · <span id="jKm">0</span> km travelled</div>
+  <div id="hint"></div>
+  <div class="row"><button id="hintBtn">Hint: which way?</button><button id="giveUpBtn" class="ghost">Give up</button></div>
+</div>
+
+<div id="guessBox" class="hidden">
+  <div id="guessMap"></div>
+  <button id="guessBtn" disabled>Click the map to guess</button>
+</div>
+
+<div id="result">
+  <div id="resultMap"></div>
+  <h2 id="resultTitle"></h2>
+  <p id="resultText"></p>
+  <div id="factCard" class="hidden">
+    <p id="factText"></p>
+    <p id="clueText"><b>The giveaway:</b> <span></span></p>
+  </div>
+  <button id="nextBtn">Next round</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ---------- data ----------
+// [lat, lng, zoom, name, country, continent, climate, fact, clue]
+const PLACES = [
+  [25.112, 55.139, 13, "Palm Jumeirah, Dubai", "United Arab Emirates", "Asia", "Hot desert",
+    "An artificial island shaped like a palm tree, built from sand dredged from the floor of the Gulf. Each frond is lined with villas.",
+    "A perfectly symmetrical palm in turquoise water can only be human-made, and the beige desert coast points to the Gulf."],
+  [36.10, -112.11, 12, "Grand Canyon, USA", "United States", "North America", "Dry, semi-arid",
+    "Carved by the Colorado River and up to about 1.8 km deep. Its rock layers record nearly two billion years of Earth's history.",
+    "Layered red rock cut by a deep, branching canyon: classic dry plateau country."],
+  [45.437, 12.335, 14, "Venice, Italy", "Italy", "Europe", "Humid subtropical",
+    "Built on more than 100 small islands in a lagoon, linked by hundreds of bridges. Canals take the place of streets.",
+    "Dense terracotta roofs with water channels instead of roads, in a shallow lagoon."],
+  [29.977, 31.132, 15, "Pyramids of Giza, Egypt", "Egypt", "Africa", "Hot desert",
+    "The Great Pyramid was the tallest human-made structure for about 3,800 years. Cairo's sprawl now reaches the plateau's edge.",
+    "Sharp square shapes casting triangular shadows on bare sand, with a city pressing right up against them."],
+  [40.78, -73.966, 14, "Central Park, New York", "United States", "North America", "Humid continental",
+    "A 4 km long park laid out in the 1850s in the middle of Manhattan's street grid.",
+    "A long green rectangle cut cleanly out of a rigid street grid."],
+  [-33.857, 151.215, 16, "Sydney Opera House", "Australia", "Oceania", "Humid subtropical",
+    "Its shell roofs are covered in over a million tiles. It sits on a point in one of the world's largest natural harbours.",
+    "White sail-like shells on a point in a deep, winding harbour."],
+  [21.12, -11.40, 11, "Richat Structure, Mauritania", "Mauritania", "Africa", "Hot desert",
+    "About 40 km across, the 'Eye of the Sahara' was once thought to be a meteor crater. It is really an eroded dome of uplifted rock.",
+    "Giant concentric rings in empty Sahara sand."],
+  [35.36, 138.727, 12, "Mount Fuji, Japan", "Japan", "Asia", "Humid temperate",
+    "Japan's highest peak at 3,776 m, an active volcano that last erupted in 1707.",
+    "A near-perfect volcanic cone with lakes and towns around its base."],
+  [-3.13, -59.9, 11, "Amazon near Manaus, Brazil", "Brazil", "South America", "Tropical rainforest",
+    "Here the dark Rio Negro meets the muddy Solimões, and they flow side by side for kilometres before mixing.",
+    "Unbroken rainforest and two rivers of different colours flowing together."],
+  [21.95, 89.18, 11, "Sundarbans, Bangladesh/India", "Bangladesh and India", "Asia", "Tropical monsoon",
+    "The world's largest mangrove forest and home of the Bengal tiger. Tidal channels wind through it to the Bay of Bengal.",
+    "A maze of muddy tidal creeks through dark green forest, where a huge delta meets the sea."],
+  [-25.345, 131.036, 14, "Uluru, Australia", "Australia", "Oceania", "Hot desert",
+    "A sandstone monolith 348 m high, sacred to the Aṉangu people. It looks red because iron in the rock has rusted.",
+    "One huge red rock rising alone from flat red desert."],
+  [41.890, 12.492, 16, "Colosseum, Rome", "Italy", "Europe", "Mediterranean",
+    "Finished in 80 AD, it held around 50,000 spectators. The exposed maze inside is the underground where fighters and animals waited.",
+    "A giant oval ruin with an exposed maze inside, in the middle of an old city."],
+  [48.8738, 2.295, 16, "Arc de Triomphe, Paris", "France", "Europe", "Temperate oceanic",
+    "Twelve avenues radiate from the arch like a star, which is why the square is called Place de l'Étoile.",
+    "Wide boulevards radiating from a single roundabout."],
+  [-33.96, 18.41, 12, "Table Mountain, Cape Town", "South Africa", "Africa", "Mediterranean",
+    "Its flat top is about 3 km wide. A 'tablecloth' of cloud often pours over its edge.",
+    "A long flat-topped mountain right behind a coastal city near the tip of a continent."],
+  [-22.95, -43.21, 12, "Rio de Janeiro, Brazil", "Brazil", "South America", "Tropical",
+    "The city squeezes between granite peaks such as Sugarloaf and Corcovado and long beaches such as Copacabana.",
+    "Steep forested granite hills rising straight out of the city and the bay."],
+  [22.29, 114.17, 13, "Victoria Harbour, Hong Kong", "China (Hong Kong)", "Asia", "Humid subtropical",
+    "One of the world's busiest harbours, between Hong Kong Island and Kowloon. Much of the waterfront is reclaimed land.",
+    "Skyscrapers packed on both sides of a narrow harbour, with steep green hills behind."],
+  [1.283, 103.86, 15, "Marina Bay, Singapore", "Singapore", "Asia", "Tropical rainforest",
+    "Almost all the land around the bay was reclaimed from the sea. The three towers with a ship-like roof are Marina Bay Sands.",
+    "Ultra-modern towers and gardens around a bay, on flat reclaimed land."],
+  [-20.13, -67.49, 9, "Salar de Uyuni, Bolivia", "Bolivia", "South America", "Cold highland desert",
+    "The world's largest salt flat, over 10,000 km², left by prehistoric lakes about 3,600 m up in the Andes.",
+    "A blinding white plain ringed by brown volcanic mountains."],
+  [69.22, -51.10, 10, "Ilulissat Icefjord, Greenland", "Greenland (Denmark)", "North America", "Polar tundra",
+    "Fed by Sermeq Kujalleq, one of the fastest-moving glaciers in the world. Its icebergs drift out into Disko Bay.",
+    "A fjord jammed with white icebergs beside bare rocky land."],
+  [-3.07, 37.35, 11, "Kilimanjaro, Tanzania", "Tanzania", "Africa", "Alpine above savanna",
+    "Africa's highest mountain at 5,895 m, a dormant volcano. Its summit glaciers have shrunk sharply over the last century.",
+    "A huge volcano with a summit crater rising from dry plains."],
+  [13.4125, 103.867, 15, "Angkor Wat, Cambodia", "Cambodia", "Asia", "Tropical monsoon",
+    "The largest religious monument in the world, built in the 12th century and ringed by a wide moat.",
+    "A perfect square of moat around a temple, in flat green land."],
+  [41.39, 2.16, 15, "Eixample, Barcelona", "Spain", "Europe", "Mediterranean",
+    "Planned by Ildefons Cerdà in 1859. Every block has its corners cut off, so the junctions are wide and the blocks octagonal.",
+    "A grid of blocks with cut-off corners, unlike almost any other city."],
+  [4.175, 73.51, 15, "Malé, Maldives", "Maldives", "Asia", "Tropical",
+    "One of the most densely populated cities on Earth, filling its whole island. The Maldives' highest natural point is only a few metres up.",
+    "An island completely covered in buildings, surrounded by coral reef and deep blue ocean."],
+  [52.53, 5.6, 12, "Flevoland polders, Netherlands", "Netherlands", "Europe", "Temperate oceanic",
+    "This whole province was sea until the 1950s and 60s, when the Dutch drained it to make land.",
+    "Perfectly straight fields and canals on dead-flat land beside water."],
+  [37.5, -100.8, 12, "Pivot irrigation, Kansas", "United States", "North America", "Semi-arid",
+    "Each circle is a field watered by a rotating sprinkler arm, often pumping from the huge Ogallala Aquifer underground.",
+    "Green circles inside square plots: centre-pivot irrigation on dry plains."],
+  [36.115, -115.173, 15, "Las Vegas Strip, USA", "United States", "North America", "Hot desert",
+    "A big city in the Mojave Desert that gets most of its water from Lake Mead, behind the Hoover Dam.",
+    "Huge resort buildings and pools along one boulevard, with bare desert at the city's edge."],
+  [27.175, 78.042, 16, "Taj Mahal, India", "India", "Asia", "Humid subtropical",
+    "A white marble mausoleum completed in the 1650s on the bank of the Yamuna River in Agra.",
+    "A white domed building with symmetrical gardens beside a river."],
+  [64.146, -21.94, 13, "Reykjavík, Iceland", "Iceland", "Europe", "Subpolar oceanic",
+    "The northernmost capital of an independent country. Most of its homes are heated with geothermal hot water.",
+    "A small city with colourful roofs on a bare, treeless coast."],
+  [30.8, 31.0, 8, "Nile Delta, Egypt", "Egypt", "Africa", "Hot desert",
+    "The Nile splits into branches and fans out before reaching the Mediterranean. Most Egyptians live along the river and in this delta.",
+    "A green triangle of farmland surrounded by desert on every side."],
+  [-19.3, 22.9, 9, "Okavango Delta, Botswana", "Botswana", "Africa", "Semi-arid",
+    "A river that never reaches the sea: it spreads into the Kalahari and evaporates, making a huge wetland full of wildlife.",
+    "A fan of green channels and islands spreading out into dry land."],
+  [-17.9243, 25.8572, 15, "Victoria Falls", "Zambia and Zimbabwe", "Africa", "Tropical savanna",
+    "The Zambezi drops about 100 m into a narrow chasm, one of the largest sheets of falling water in the world.",
+    "A wide river suddenly vanishing into a zigzag gorge."],
+  [27.988, 86.925, 13, "Mount Everest", "Nepal and China", "Asia", "Polar alpine",
+    "Earth's highest peak at 8,849 m. Glaciers such as the Khumbu flow down from its slopes.",
+    "Snow, rock and glaciers at the top of an enormous mountain range."],
+  [20.91, 107.18, 12, "Ha Long Bay, Vietnam", "Vietnam", "Asia", "Humid subtropical",
+    "Around 1,600 limestone islands and islets rise from the sea, the remains of ancient karst landscape.",
+    "Hundreds of small forested islands scattered across green sea."],
+  [-13.1631, -72.545, 16, "Machu Picchu, Peru", "Peru", "South America", "Subtropical highland",
+    "A 15th-century Inca citadel at about 2,430 m on a ridge high above the Urubamba River.",
+    "Stone terraces on a narrow ridge between steep jungle peaks."],
+  [-25.6953, -54.4367, 15, "Iguazu Falls", "Argentina and Brazil", "South America", "Humid subtropical",
+    "Hundreds of separate falls along nearly 3 km of river. The largest, the Devil's Throat, is a U-shaped chasm.",
+    "A river breaking into many waterfalls inside thick rainforest."],
+  [37.8199, -122.4783, 14, "Golden Gate Bridge, San Francisco", "United States", "North America", "Mediterranean",
+    "Opened in 1937, it spans the strait between San Francisco Bay and the Pacific Ocean.",
+    "A long suspension bridge across a narrow strait leading into a big bay."],
+  [30.3222, 35.4513, 15, "Petra, Jordan", "Jordan", "Asia", "Hot desert",
+    "A Nabataean city carved into reddish sandstone over 2,000 years ago, reached through a narrow gorge called the Siq.",
+    "Twisting dry canyons in reddish rock, with paths leading between them."],
+  [62.105, 7.09, 13, "Geirangerfjord, Norway", "Norway", "Europe", "Subarctic",
+    "A narrow arm of the sea carved by Ice Age glaciers. Waterfalls such as the Seven Sisters pour down its cliffs.",
+    "A narrow winding inlet between steep mountain walls."],
+  [41.08, 29.05, 12, "Bosphorus, Istanbul", "Turkey", "Europe and Asia", "Mediterranean",
+    "A 30 km strait that splits Istanbul between Europe and Asia and links the Black Sea to the Sea of Marmara.",
+    "A narrow winding strait running through the middle of a huge city."],
+  [-24.73, 15.34, 12, "Sossusvlei dunes, Namibia", "Namibia", "Africa", "Hot desert",
+    "Some of the tallest sand dunes on Earth, in the Namib, one of the oldest deserts in the world.",
+    "Giant orange star-shaped dunes with pale dry clay pans between them."],
+];
+const HINT_COST = 500;
+const ROUNDS = 5;
+
+// Journey: start, target, locked zoom, what the target looks like from above.
+const JOURNEYS = [
+  { from:[29.977, 31.132, "Pyramids of Giza"], to:[30.59, 32.30, "Suez Canal (Ismailia)"], z:12, look:"A dead-straight canal cutting through desert between two seas." },
+  { from:[25.112, 55.139, "Palm Jumeirah"], to:[24.47, 54.34, "Abu Dhabi"], z:12, look:"A city on an island, tucked behind shallow turquoise lagoons." },
+  { from:[52.373, 4.893, "Amsterdam"], to:[51.95, 4.13, "Port of Rotterdam"], z:12, look:"Huge docks and container terminals reaching out to the North Sea." },
+  { from:[22.29, 114.17, "Hong Kong harbour"], to:[22.19, 113.54, "Macau"], z:12, look:"A small dense peninsula with reclaimed land and a long bridge to the east." },
+  { from:[35.36, 138.727, "Mount Fuji"], to:[35.68, 139.76, "Central Tokyo"], z:12, look:"Endless grey city meeting a big bay." },
+  { from:[45.437, 12.335, "Venice"], to:[45.47, 10.65, "Lake Garda (south shore)"], z:12, look:"A long lake pointing north into the Alps; you hit its wide southern end." },
+  { from:[51.5055, -0.0754, "Tower Bridge, London"], to:[51.13, 1.34, "Dover"], z:12, look:"A port with white chalk cliffs facing France." },
+  { from:[41.890, 12.492, "Colosseum, Rome"], to:[42.12, 12.23, "Lake Bracciano"], z:13, look:"An almost perfectly round lake, an old volcano crater." },
+  { from:[-33.96, 18.41, "Table Mountain"], to:[-34.357, 18.474, "Cape of Good Hope"], z:13, look:"The rocky tip of a long thin peninsula." },
+  { from:[36.115, -115.173, "Las Vegas Strip"], to:[36.016, -114.737, "Hoover Dam"], z:13, look:"A curved concrete wall holding back a deep blue reservoir in a canyon." },
+  { from:[23.81, 90.41, "Dhaka"], to:[23.44, 90.27, "Padma Bridge"], z:13, look:"A very long bridge across a wide, braided river." },
+  { from:[1.283, 103.86, "Marina Bay, Singapore"], to:[1.454, 103.768, "Johor–Singapore Causeway"], z:14, look:"A short road-and-rail link across a narrow strait." },
+];
+
+// ---------- maps ----------
+const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const ESRI_ATTR = "Imagery © Esri, Maxar, Earthstar Geographics";
+const OSM = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM_ATTR = "© OpenStreetMap contributors";
+
+const sat = L.map("sat", { zoomControl: false }).setView([20, 0], 3);
+L.tileLayer(ESRI, { attribution: ESRI_ATTR, maxNativeZoom: 18, maxZoom: 20 }).addTo(sat);
+const labels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+  { maxNativeZoom: 18, maxZoom: 20 });
+L.control.zoom({ position: "topright" }).addTo(sat);
+const trail = L.polyline([], { color: "#ffb020", weight: 4, opacity: .8 }).addTo(sat);
+
+const guessMap = L.map("guessMap", { worldCopyJump: true }).setView([20, 0], 1);
+L.tileLayer(OSM, { attribution: OSM_ATTR, maxZoom: 18 }).addTo(guessMap);
+
+const resultMap = L.map("resultMap", { worldCopyJump: true });
+L.tileLayer(OSM, { attribution: OSM_ATTR, maxZoom: 18 }).addTo(resultMap);
+const resultLayer = L.layerGroup().addTo(resultMap);
+
+const $ = id => document.getElementById(id);
+const show = (id, on) => $(id).classList.toggle("hidden", !on);
+let mode = "menu";
+
+// ---------- geo helpers ----------
+const rad = d => d * Math.PI / 180;
+function haversineKm(a, b) {
+  const dLat = rad(b[0] - a[0]), dLng = rad(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+function bearing(a, b) {
+  const y = Math.sin(rad(b[1] - a[1])) * Math.cos(rad(b[0]));
+  const x = Math.cos(rad(a[0])) * Math.sin(rad(b[0])) - Math.sin(rad(a[0])) * Math.cos(rad(b[0])) * Math.cos(rad(b[1] - a[1]));
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+const compass = (a, b) => ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"][Math.round(bearing(a, b) / 45) % 8];
+const scoreFor = km => Math.round(5000 * Math.exp(-km / 2000));
+
+function showResult(title, text, nextLabel, fit, place) {
+  $("resultTitle").textContent = title;
+  $("resultText").textContent = text;
+  show("factCard", !!place);
+  if (place) {
+    $("factText").textContent = place[7];
+    $("clueText").querySelector("span").textContent = place[8];
+  }
+  $("nextBtn").textContent = nextLabel;
+  $("result").style.display = "block";
+  resultMap.invalidateSize();
+  resultMap.fitBounds(fit.pad(0.3), { maxZoom: 10 });
+}
+
+function toMenu() {
+  mode = "menu";
+  clearInterval(jTimer);
+  ["ghud", "jhud", "fhud", "guessBox", "compass"].forEach(id => show(id, false));
+  $("result").style.display = "none";
+  sat.removeLayer(labels); $("labelsBox").checked = false;
+  show("menu", true);
+}
+document.querySelectorAll(".toMenu").forEach(a => a.onclick = toMenu);
+
+// ---------- Guess mode ----------
+let deck, round, total, current, guessMarker, gHintsUsed;
+
+// Hints go from vague to specific; each one costs HINT_COST points.
+const HINTS = [p => `Climate: ${p[6]}`, p => `Continent: ${p[5]}`, p => `Country: ${p[4]}`];
+$("gHintBtn").onclick = () => {
+  const li = document.createElement("li");
+  li.textContent = HINTS.at(gHintsUsed)(current);
+  $("gHints").append(li);
+  gHintsUsed++;
+  $("gHintBtn").disabled = gHintsUsed === HINTS.length;
+};
+
+function startGame() {
+  mode = "guess";
+  deck = [...PLACES].sort(() => Math.random() - .5).slice(0, ROUNDS); // ponytail: biased shuffle, fine for 5 picks
+  round = 0; total = 0;
+  startRound();
+}
+
+function startRound() {
+  current = deck[round];
+  const [lat, lng, z] = current;
+  trail.setLatLngs([]);
+  sat.setMaxZoom(18).setMinZoom(Math.max(z - 3, 2));
+  sat.setMaxBounds(L.latLng(lat, lng).toBounds(400000)); // 400 km box: zoom out for clues, not to a continent
+  sat.setView([lat, lng], z, { animate: false });
+  if (guessMarker) { guessMap.removeLayer(guessMarker); guessMarker = null; }
+  guessMap.setView([20, 0], 1);
+  $("guessBtn").disabled = true;
+  $("guessBtn").textContent = "Click the map to guess";
+  gHintsUsed = 0;
+  $("gHints").replaceChildren();
+  $("gHintBtn").disabled = false;
+  $("round").textContent = round + 1;
+  $("score").textContent = total;
+  $("result").style.display = "none";
+  show("menu", false); show("jhud", false); show("ghud", true); show("guessBox", true); show("compass", true);
+}
+
+guessMap.on("click", e => {
+  const ll = e.latlng.wrap();
+  if (guessMarker) guessMarker.setLatLng(ll); else guessMarker = L.marker(ll).addTo(guessMap);
+  $("guessBtn").disabled = false;
+  $("guessBtn").textContent = "Guess";
+});
+
+$("guessBtn").onclick = () => {
+  const g = guessMarker.getLatLng(), actual = [current[0], current[1]];
+  const km = haversineKm([g.lat, g.lng], actual);
+  const pts = Math.max(0, scoreFor(km) - HINT_COST * gHintsUsed);
+  total += pts;
+  $("score").textContent = total;
+  show("guessBox", false);
+  resultLayer.clearLayers();
+  L.marker([g.lat, g.lng]).addTo(resultLayer);
+  L.circleMarker(actual, { radius: 8, color: "#ffb020", fillOpacity: 1 }).addTo(resultLayer);
+  L.polyline([[g.lat, g.lng], actual], { color: "#ffb020", dashArray: "6 6" }).addTo(resultLayer);
+  const last = round === ROUNDS - 1;
+  const hintNote = gHintsUsed ? ` (${gHintsUsed} hint${gHintsUsed > 1 ? "s" : ""}, −${HINT_COST * gHintsUsed})` : "";
+  showResult(current[3], `${Math.round(km).toLocaleString()} km away · +${pts} points${hintNote}`,
+    last ? `Final: ${total} / ${ROUNDS * 5000} · Play again` : "Next round",
+    L.latLngBounds([[g.lat, g.lng], actual]), current);
+};
+
+// ---------- Journey mode ----------
+let jr, jLast = -1, path, travelled, jStart, jTimer, hints, jDone;
+
+function startJourney() {
+  mode = "setup"; // map moves below must not count as travel
+  let i; do { i = Math.floor(Math.random() * JOURNEYS.length); } while (i === jLast);
+  jLast = i; jr = JOURNEYS[i];
+  const start = L.latLng(jr.from[0], jr.from[1]);
+  sat.setMaxBounds(null);
+  sat.setMinZoom(jr.z).setMaxZoom(jr.z); // zoom locked: you must travel, not zoom out
+  sat.setView(start, jr.z, { animate: false });
+  path = [start]; travelled = 0; hints = 0; jDone = false;
+  mode = "journey";
+  trail.setLatLngs(path);
+  $("jFrom").textContent = jr.from[2];
+  $("jTo").textContent = jr.to[2];
+  $("jLook").textContent = "Look for: " + jr.look;
+  $("hint").textContent = "";
+  $("jKm").textContent = "0";
+  jStart = Date.now();
+  clearInterval(jTimer);
+  jTimer = setInterval(() => $("jTime").textContent = fmtTime(Date.now() - jStart), 1000);
+  $("jTime").textContent = "0:00";
+  $("result").style.display = "none";
+  show("menu", false); show("ghud", false); show("guessBox", false); show("jhud", true);
+  show("compass", true); show("needle", false);
+}
+
+const fmtTime = ms => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
+sat.on("move", () => {
+  if (mode !== "journey" || jDone) return;
+  const c = sat.getCenter(), last = path[path.length - 1];
+  const d = haversineKm([last.lat, last.lng], [c.lat, c.lng]);
+  if (d < 0.5) return;
+  path.push(c); travelled += d;
+  trail.addLatLng(c);
+  $("jKm").textContent = Math.round(travelled);
+});
+
+sat.on("moveend", () => {
+  if (mode !== "journey" || jDone) return;
+  // Arrived once the target sits in the middle part of the screen.
+  if (sat.getBounds().pad(-0.25).contains([jr.to[0], jr.to[1]])) finishJourney(true);
+});
+
+$("hintBtn").onclick = () => {
+  const c = sat.getCenter();
+  hints++;
+  $("hint").textContent = `Head ${compass([c.lat, c.lng], jr.to)}.`;
+  $("needle").setAttribute("transform", `rotate(${bearing([c.lat, c.lng], jr.to)})`); // snapshot, not live: hints shouldn't steer for you
+  show("needle", true);
+};
+
+// ---------- Free ride ----------
+function startFree() {
+  mode = "free";
+  trail.setLatLngs([]);
+  sat.setMaxBounds(null);
+  sat.setMaxZoom(20).setMinZoom(2);
+  $("fPlace").textContent = "Drag to move, scroll or pinch to zoom.";
+  show("menu", false); show("fhud", true); show("compass", true); show("needle", false);
+}
+// OpenStreetMap Nominatim: free, max 1 request/sec, so search on submit only (never per keystroke).
+$("searchForm").onsubmit = async e => {
+  e.preventDefault();
+  const q = $("searchInput").value.trim();
+  if (!q) return;
+  $("searchBtn").disabled = true;
+  $("fPlace").textContent = "Searching…";
+  try {
+    const res = await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(q));
+    const [hit] = await res.json();
+    if (!hit) { $("fPlace").textContent = `Couldn't find "${q}".`; return; }
+    const [s, n, w, ea] = hit.boundingbox.map(Number);
+    sat.flyToBounds([[s, w], [n, ea]], { duration: 3, maxZoom: 17 });
+    $("fPlace").textContent = hit.display_name;
+  } catch {
+    $("fPlace").textContent = "Search failed. Check your connection.";
+  } finally {
+    setTimeout(() => $("searchBtn").disabled = false, 1000); // respect 1 req/sec
+  }
+};
+$("labelsBox").onchange =e => e.target.checked ? labels.addTo(sat) : sat.removeLayer(labels);
+$("surpriseBtn").onclick = () => {
+  const [lat, lng, z, name] = PLACES[Math.floor(Math.random() * PLACES.length)];
+  $("fPlace").textContent = "Flying to " + name + "…";
+  sat.flyTo([lat, lng], z, { duration: 4 });
+  sat.once("moveend", () => $("fPlace").textContent = name);
+};
+$("giveUpBtn").onclick = () => finishJourney(false);
+
+function finishJourney(arrived) {
+  jDone = true;
+  clearInterval(jTimer);
+  const straight = haversineKm(jr.from, jr.to);
+  const eff = travelled ? Math.min(100, Math.round(straight / travelled * 100)) : 0;
+  resultLayer.clearLayers();
+  L.polyline(path, { color: "#ffb020", weight: 4 }).addTo(resultLayer);
+  L.polyline([jr.from.slice(0, 2), jr.to.slice(0, 2)], { color: "#555", dashArray: "6 6", weight: 2 }).addTo(resultLayer);
+  L.circleMarker(jr.from.slice(0, 2), { radius: 7, color: "#2b7", fillOpacity: 1 }).addTo(resultLayer).bindTooltip(jr.from[2], { permanent: true });
+  L.circleMarker(jr.to.slice(0, 2), { radius: 7, color: "#ffb020", fillOpacity: 1 }).addTo(resultLayer).bindTooltip(jr.to[2], { permanent: true });
+  const text = arrived
+    ? `${fmtTime(Date.now() - jStart)} · ${Math.round(travelled)} km travelled for a ${Math.round(straight)} km trip (${eff}% direct)` + (hints ? ` · ${hints} hint${hints > 1 ? "s" : ""}` : "")
+    : `${jr.to[2]} was ${compass(jr.from, jr.to)} of ${jr.from[2]}, ${Math.round(straight)} km away. Grey line = the direct route.`;
+  showResult(arrived ? `You reached ${jr.to[2]}!` : "Here's where it was", text, "Next journey",
+    L.latLngBounds([...path, jr.to.slice(0, 2)]));
+}
+
+// ---------- wiring ----------
+$("playGuess").onclick = startGame;
+$("playJourney").onclick = startJourney;
+$("playFree").onclick = startFree;
+$("nextBtn").onclick = () => {
+  if (mode === "journey") return startJourney();
+  if (round === ROUNDS - 1) return startGame();
+  round++; startRound();
+};
+
+// Sanity checks: London–Paris ≈ 344 km; Giza → Suez is north-east.
+console.assert(Math.abs(haversineKm([51.5074, -0.1278], [48.8566, 2.3522]) - 344) < 5, "haversine broken");
+console.assert(compass([29.977, 31.132], [30.59, 32.30]) === "north-east", "compass broken");
+</script>
+</body>
+</html>
